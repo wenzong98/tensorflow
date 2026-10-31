@@ -13,6 +13,6 @@ py_binary(
     main = "tf_graph_report.py",
     deps = [
         "//tensorflow/python/eager/plan_runtime:plan_runtime",
-        "//tensorflow/core:protos_all_py",
+        "//tensorflow/python:framework",
     ],
 )
