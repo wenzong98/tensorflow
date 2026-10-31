@@ -1,21 +1,49 @@
-# LDGCC-8: Transactional Dynamic Graph Compiler and Durable Cache
+# LDGCC-8.1 — Dynamic Compiler Replay Consistency
 
-A small CPU graph compiler supports symbolic-shape specialization, fusion, backend option selection, in-memory and disk caches, and process restart. Normal executions pass public tests. Under changes of shape constraints, nondefault node kwargs, mutable inputs, backend switching, concurrent compilation and persistent cache recovery, it produces incorrect values or loses valid specializations.
+## Engineering incident
 
-Your task: repair the implementation in `/app/graphcache` without breaking existing APIs.
+A CPU graph compiler specializing symbolic input lengths intermittently returns
+numerically incorrect values when used as a long-lived service. A restart may
+change the result even if the graph, input and backend configuration are
+unchanged. Multiple workers sharing a cache sometimes lose previously usable
+compiled programs. Source graphs and backend options are application-owned and
+may be mutated after a program is compiled.
 
-## Observable contract
+The incident reproduction utility in `incidents/replay_incident.py` illustrates
+an affected workload. The public smoke tests pass on the initial repository.
+The bug may involve multiple stages of the compilation and execution pipeline.
 
-1. Compiled results must agree with `graphcache.reference.evaluate_reference` on valid graphs, with exact integers and abs_tol=1e-9 for float outputs.
-2. Specialization can only be executed if actual length is within its full guard. Rebinding shape constraints must not retain stale derived conclusions.
-3. Fused operators must preserve explicit nondefault attrs; keep default-value FMA fusion.
-4. Backend `extras` that affect execution must participate in compilation identity with order-independent dictionary canonicalization.
-5. Persistent entries must validate ABI, graph identity and artifact integrity before execution; valid unchanged entries must be reusable after restart.
-6. A compiled program is a snapshot: subsequent mutation of the source graph's nested attributes or backend options must not silently change that program.
-7. Multiple disjoint shape specializations with the same graph/options must survive process restart and be selected by full guards.
-8. Concurrent writers to the same cache key must not truncate the cache or erase each other's valid specializations. Updates must be atomic and recover from a previously interrupted update.
-9. A compile in progress must not mix shape constraints from different rebinding epochs. It may complete using a consistent snapshot of the initial shape contract.
+## Goal
 
-Do not disable fusion, caching, specialization, or disk reuse, and do not simply run the reference interpreter in lieu of compiled specialization. Do not change `reference.py`, public IR schema or public tests. No network/GPU dependencies.
+Repair the pipeline in `/app/graphcache/` so that correct results and valid
+specialization reuse hold for arbitrary valid graph inputs and histories,
+including shape changes, backend changes, process restarts, concurrent workers,
+and interrupted persistent-cache updates. Keep existing public interfaces.
 
-Run: `PYTHONPATH=/app python -m unittest discover -s /app/public_tests -v`.
+## Required observable properties
+
+- Compiled execution agrees with the independent reference semantics in
+  `graphcache.reference.evaluate_reference` (integer outputs exact, floating
+  outputs absolute tolerance 1e-9). The reference is a specification of
+  computation, **not a permitted replacement for the compilation process**.
+- A compiled program retains the behavior of the graph and backend configuration
+  captured at its compilation boundary, regardless of later caller mutation.
+- Reuse is permitted only while the exact assumptions of the existing compiled
+  program remain valid. Rebinding a symbolic environment or replaying a disk
+  artifact must not silently change semantics.
+- Concurrent independent compiler instances may share a persistent cache.
+  Valid artifacts must survive restarts and overlapping writes without yielding
+  incorrect execution. Damaged or incompatible records must not be executed.
+- Existing valid optimizations and specializations remain enabled. Normal
+  repeated workloads must continue to produce observable cache hits, and
+  disjoint valid specializations must be reusable after restart.
+
+## Constraints
+
+Do not modify `graphcache/reference.py`, `graphcache/ir.py`, public tests, or
+input/output APIs. Do not disable fusion or the caches, return hard-coded
+answers, or execute every graph through the reference interpreter. You may
+modify the compiler, optimizer, shape environment and cache implementation.
+No network, GPU or external models are required.
+
+Public checks: `PYTHONPATH=/app python -m unittest discover -s /app/public_tests -v`.
