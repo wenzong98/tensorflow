@@ -1,0 +1,11 @@
+version = "1.0"
+[metadata]
+author_name = "Benchmark engineering"
+author_email = "benchmark@example.invalid"
+difficulty = "hard"
+category = "software-engineering"
+tags = ["compilers", "symbolic-shapes", "optimization", "cache-correctness", "cpu-only"]
+[verifier]
+timeout_sec = 180
+[agent]
+timeout_sec = 28800
